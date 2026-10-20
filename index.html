@@ -1028,13 +1028,24 @@ function ShtpMomentsSection({ i }) {
     let dead = false;
     const natural = (a, c) => a.localeCompare(c, undefined, { numeric: true, sensitivity: "base" });
     const done = (list, conf) => { if (!dead) { setImages(list); setCfg(conf || {}); } };
-    const fromCfg = (conf) => (conf.images || []).filter(n => SHTP_IMG_RE.test(n)).map(n => /^(https?:|images\/)/i.test(n) ? n : SHTP_EVENTS_DIR + n);
+    const fromCfg = (conf) => (conf.images || []).filter(n => SHTP_IMG_RE.test(n)).map(n => encodeURI(/^(https?:|images\/)/i.test(n) ? n : SHTP_EVENTS_DIR + n));
     fetch(SHTP_EVENTS_DIR + "config.json?v=" + Date.now()).then(r => r.ok ? r.json() : {}).catch(() => ({})).then(conf => {
       // 1) Tự động đọc danh sách file trong thư mục images/events qua GitHub API
-      fetch("https://api.github.com/repos/" + shtpGithubRepo() + "/contents/images/events")
-        .then(r => r.ok ? r.json() : Promise.reject())
-        .then(files => {
-          const list = files.filter(f => f.type === "file" && SHTP_IMG_RE.test(f.name)).map(f => f.name).sort(natural).map(n => SHTP_EVENTS_DIR + n);
+      const api = "https://api.github.com/repos/" + shtpGithubRepo() + "/contents/";
+      const ls = (path) => fetch(api + encodeURI(path)).then(r => r.ok ? r.json() : Promise.reject());
+      ls("images/events")
+        .then(async items => {
+          // Thư mục con (1-Sanh VIP, 2-Trien lam, ...) chạy lần lượt theo thứ tự tên thư mục; ảnh nằm ngoài thư mục xếp sau cùng
+          const dirs = items.filter(f => f.type === "dir").map(f => f.name).sort(natural);
+          let list = [];
+          for (const d of dirs) {
+            try {
+              const files = await ls("images/events/" + d);
+              list = list.concat(files.filter(f => f.type === "file" && SHTP_IMG_RE.test(f.name)).map(f => f.name).sort(natural).map(n => encodeURI(SHTP_EVENTS_DIR + d + "/" + n)));
+            } catch (e) {}
+          }
+          const loose = items.filter(f => f.type === "file" && SHTP_IMG_RE.test(f.name)).map(f => f.name).sort(natural).map(n => SHTP_EVENTS_DIR + n);
+          list = list.concat(loose);
           if (list.length) done(list, conf); else done(fromCfg(conf), conf);
         })
         // 2) Dự phòng: danh sách "images" trong config.json
